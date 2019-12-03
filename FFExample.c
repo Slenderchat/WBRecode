@@ -1,63 +1,118 @@
 #include <libavformat/avformat.h>
-//#include <libavcodec/avcodec.h>
-#include <stdio.h>
-int main(int argc, char **argv)
-{
-    AVFormatContext     *inFmtCtx   =   avformat_alloc_context();
-    avformat_open_input(&inFmtCtx, "bbb_sunflower_1080p_30fps_normal.mp4", NULL, NULL);
-    avformat_find_stream_info(inFmtCtx, NULL);
-    int vInd = -1;
-    for (int i = 0; i < inFmtCtx->nb_streams; i++){
+#include <libavcodec/avcodec.h>
+
+int rC = -1;
+
+void chk(int ret, const char* eMsg){
+    if(ret < 0){
+        printf(eMsg);
+        exit(rC);
+    }else{
+        rC++;
+    }
+}
+
+int findVideoStream(AVFormatContext *ctx){
+    int ret = -1;
+    for (int i = 0; i < ctx->nb_streams; i++){
         AVCodecParameters *tmp = NULL;
-        tmp = inFmtCtx->streams[i]->codecpar;
+        tmp = ctx->streams[i]->codecpar;
         if(tmp->codec_type == AVMEDIA_TYPE_VIDEO){
-            vInd = i;
+            ret = i;
+            break;
         }
     }
-    AVCodecParameters   *inCodPmt   =   inFmtCtx->streams[vInd]->codecpar;
-    /*
-    AVCodec             *inCod      =   avcodec_find_decoder(inCodPmt->codec_id);
-    AVCodecContext      *inCodCtx   =   avcodec_alloc_context3(inCod);
-    avcodec_parameters_to_context(inCodCtx, inCodPmt);
-    avcodec_open2(inCodCtx, inCod, NULL);
-    */
-    AVPacket            *inPkt      =   av_packet_alloc();
-    AVFrame             *inFrm      =   av_frame_alloc();
-    AVFormatContext     *outFmtCtx  =   NULL;
-    avformat_alloc_output_context2(&outFmtCtx, NULL, NULL, "out.ts");
-    AVStream            *invstream  =   inFmtCtx->streams[vInd];
-    AVStream            *ovstream   =   avformat_new_stream(outFmtCtx, NULL);
-    avcodec_parameters_copy(ovstream->codecpar, inCodPmt);
-    avio_open(&outFmtCtx->pb, "out.ts", AVIO_FLAG_WRITE);
-    avformat_write_header(outFmtCtx, NULL);
-    /*
-    int toProc = 300;
-    while(av_read_frame(inFmtCtx, inPkt) >= 0){
-        if(inPkt->stream_index == vInd){
-            avcodec_send_packet(inCodCtx, inPkt);
-            avcodec_receive_frame(inCodCtx, inFrm);
-            printf("Frame %d\n", inCodCtx->frame_number);
-            if(toProc-- < 0){
-                break;
-            }
+    return(ret);
+}
+
+void transcode(const char* iFilename, const char* oFilename){
+    int ret = -1;
+    AVFormatContext *iFx = avformat_alloc_context(), *oFx = avformat_alloc_context();
+    if(iFx == NULL | oFx == NULL){
+        chk(-1, "Не удалось зарезервировать необходимую память");
+    }
+    ret = avformat_open_input(&iFx, iFilename, NULL, NULL);
+    chk(ret, "Ошибка открытия входного файла!");
+    int vSn = findVideoStream(iFx);
+    chk(vSn, "Во входной файле не найден видео-поток");
+    ret = avformat_alloc_output_context2(&oFx, NULL, NULL, oFilename);
+    chk(ret, "Ошибка открытия выходного файла");
+    ret = avformat_find_stream_info(iFx, NULL);
+    chk(ret, "Не удалось распознать тип видео-потока");
+    AVCodecParameters *iCp = iFx->streams[vSn]->codecpar, *oCp = avcodec_parameters_alloc();
+    if(iCp == NULL | oCp == NULL){
+        chk(-1, "Не удалось зарезервировать необходимую память");
+    }
+    AVCodec *iC = avcodec_find_decoder(iCp->codec_id), *oC = avcodec_find_encoder(AV_CODEC_ID_H264);
+    if(iC == NULL){
+        chk(-1, "Не удалось обнаружить подходящий декодер");
+    }
+    if(oC = NULL){
+        chk(-1, "Не удалось обнаружит необходимый кодировщик");
+    }
+    AVCodecContext *iCx = avcodec_alloc_context3(iC), *oCx = avcodec_alloc_context3(oC);
+    if(iCx == NULL | oCx == NULL){
+        chk(-1, "Не удалось зарезервировать необходимую память");
+    }
+    ret = avcodec_parameters_to_context(iCx, iCp);
+    chk(ret, "Не удалось присвоть параметры кодека контексту ввода");
+    ret = avcodec_parameters_to_context(oCx, oCp);
+    chk(ret, "Не удалось присвоть параметры кодека контексту вывода");
+    ret = avcodec_open2(iCx, iC, NULL);
+    chk(ret, "Не удалось инициализировать декодер");
+    AVDictionary *oCo = NULL;
+    ret = av_dict_parse_string(&oCo, "profile=baseline", "=", ",", AV_DICT_APPEND);
+    chk(ret, "Не удалось установить параметры кодировщика");
+    ret = avcodec_open2(oCx, oC, &oCo);
+    chk(ret, "Не удалось инициализировать кодировщик");
+    AVStream *iVs = iFx->streams[vSn];
+    if(iVs == NULL){
+        chk(-1, "Не удалось установить входной поток");
+    }
+    AVStream *oVs = avformat_new_stream(oFx, NULL);
+    if(oVs == NULL){
+        chk(-1, "Не удалось установить выходной потко");
+    }
+    ret = avio_open(&oFx->pb, oFilename, AVIO_FLAG_WRITE);
+    chk(ret, "Не удалось открыть выходной файл для записи");
+    ret = avformat_write_header(oFx, NULL);
+    chk(ret, "Не удалось записать заголовок в выходной файл");
+    while(1){
+        AVPacket *iP = av_packet_alloc(), *oP = av_packet_alloc();
+        AVFrame *iF = av_frame_alloc();
+        if(iP == NULL | oP == NULL | iF == NULL){
+            chk(-1, "Не удалось зарезервировать необходимую память");
         }
-    }*/
-    while(av_read_frame(inFmtCtx, inPkt) >= 0){
-        if (inPkt->stream_index != 0){
-            av_packet_unref(inPkt);
+        if(av_read_frame(iFx, iP) < 0){
+            break;
+        }
+        if(iP->stream_index != vSn){
+            av_packet_unref(iP);
             continue;
         }
-        invstream = inFmtCtx->streams[vInd];
-        inPkt->stream_index = 0;
-        ovstream = outFmtCtx->streams[0];
-        inPkt->pts = av_rescale_q_rnd(inPkt->pts, invstream->time_base, ovstream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
-        inPkt->dts = av_rescale_q_rnd(inPkt->dts, invstream->time_base, ovstream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
-        inPkt->duration = av_rescale_q(inPkt->duration, invstream->time_base, ovstream->time_base);
-        inPkt->pos = -1;
-        av_interleaved_write_frame(outFmtCtx, inPkt);
-        av_packet_unref(inPkt);
+        ret = avcodec_send_packet(iCx, iP);
+        chk(ret, "Не удалось послать пакет декодеру");
+        ret = avcodec_receive_frame(iCx, iF);
+        chk(ret, "Не удалось получить кадр от декодера");
+        ret = avcodec_send_frame(oCx, iF);
+        chk(ret, "Не удалось послать кадр кодировщику");
+        ret = avcodec_receive_packet(oCx, oP);
+        chk(ret, "Не удалось получить кадр от кодировщика");
+        oP->pts = av_rescale_q_rnd(oP->pts, iVs->time_base, oVs->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
+        oP->dts = av_rescale_q_rnd(oP->dts, iVs->time_base, oVs->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
+        oP->duration = av_rescale_q(oP->duration, iVs->time_base, oVs->time_base);
+        oP->pos = -1;
+        ret = av_interleaved_write_frame(oFx, oP);
+        chk(ret, "Не удалось записать кадр в выходной файл");
+        av_packet_unref(oP);
     }
-    av_write_trailer(outFmtCtx);
-    avformat_close_input(&inFmtCtx);
+    ret = av_write_trailer(oFx);
+    chk(ret, "Не удалось записать финализировать выходной файл");
+    avformat_close_input(&iFx);
+}
+
+int main(int argc, char **argv)
+{
+    transcode("bbb_sunflower_1080p_30fps_normal.mp4", "out.mp4");
     return 0;
 }
