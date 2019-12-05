@@ -14,6 +14,7 @@ int findVideoStream(AVFormatContext *ctx){
 }
 
 void transcode(const char* iFilename, const char* oFilename){
+    av_log_set_level(AV_LOG_ERROR);
     AVPacket *Pkt = av_packet_alloc();
     AVFrame *iF = av_frame_alloc();
     AVFormatContext *iFx = avformat_alloc_context(), *oFx = NULL;
