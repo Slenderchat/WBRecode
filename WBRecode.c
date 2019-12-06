@@ -42,8 +42,9 @@ int concat(const char* concatFilePath,const char* oFilename){
 }
 
 int transcode(const char* iFilename, const char* oFilename){
+    int ret = 0;
     AVFormatContext *iFx = avformat_alloc_context();
-    avformat_open_input(&iFx, iFilename, NULL, NULL);
+    ret = avformat_open_input(&iFx, iFilename, NULL, NULL);
     avformat_find_stream_info(iFx, NULL);
     int vSn = findVideoStream(iFx);
     AVStream *iVs = iFx->streams[vSn];
