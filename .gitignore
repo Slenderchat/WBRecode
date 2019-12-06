@@ -1,6 +1,11 @@
 *
 !*/
+deps/
+build/
 !CMakeLists.txt
-!FFExample.c
+!*.c
+!*.cpp
+!*.h
+!*.hpp
+!*.sh
 !.gitignore
-!scripts/*
