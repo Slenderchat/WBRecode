@@ -1,6 +1,6 @@
-#include "FFExample.hpp"
+#include "WBRecode.hpp"
 extern "C" {
-	#include "FFExample.h"
+	#include "WBRecode.h"
 }
 
 static const boost::filesystem::path TD_n = boost::filesystem::temp_directory_path() / boost::filesystem::unique_path();

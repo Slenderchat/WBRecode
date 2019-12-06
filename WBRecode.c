@@ -1,4 +1,4 @@
-#include "FFExample.h"
+#include "WBRecode.h"
 
 int findVideoStream(AVFormatContext *ctx){
     int ret =  -1;
