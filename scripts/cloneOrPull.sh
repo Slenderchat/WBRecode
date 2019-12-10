@@ -1,16 +1,14 @@
 #!/bin/sh
 GC="git clone --single-branch -j $(nproc)"
-if [ ! -e $1/.git/FETCH_HEAD ]
+if [ ! -e $1/.git/logs/HEAD ]
 then
-	case $# in
-		2)
+	if [ $# -eq 2 ]
+	then
 			${GC} $2 temp_$(basename $1)
-			;;
-		3)
+	elif [ $# -eq 3 ]
+	then
 			${GC} --branch $3 $2 temp_$(basename $1)
-			;;
-	esac
-	if [ $# -ge 4 ]
+	elif [ $# -ge 4 ]
 	then
 		${GC} --branch $3 $2 temp_$(basename $1)
 		pushd temp_$(basename $1)
@@ -26,6 +24,3 @@ then
 	cp -rf temp_$(basename $1)/. $1
 	rm -rf temp_$(basename $1)
 fi
-pushd $1
-git pull --recurse-submodules -j $(nproc)
-popd
