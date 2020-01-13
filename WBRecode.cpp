@@ -3,7 +3,6 @@
 extern "C" {
 	#include "WBRecode.h"
 }
-
 static const boost::filesystem::path TD_n = boost::filesystem::temp_directory_path() / boost::filesystem::unique_path();
 static const boost::filesystem::path TF_n = boost::filesystem::temp_directory_path() / boost::filesystem::unique_path();
 
@@ -25,7 +24,7 @@ int findAndTranscode(){
 		goto ret;
 	}
 	for (auto& p : boost::filesystem::directory_iterator(boost::filesystem::current_path())) {
-		if ((p.path().extension() == ".mp4" || p.path().extension() == ".Mp4" || p.path().extension() == ".mP4" || p.path().extension() == ".MP4") && boost::regex_match(p.path().filename().string(), (boost::regex)"[0-9]{2}-[0-9]{2}-[0-9]{2}\\.mp4")) {
+		if (boost::regex_match(p.path().filename().string(), (boost::regex)"[0-9]{2}-[0-9]{2}-[0-9]{2}\\.mp4")) {
             boost::filesystem::path tmp = TD_n / p.path().filename();
 			TF << "file '" << tmp.c_str() << "'\n";
 			ret = transcode(p.path().c_str(), tmp.c_str());
@@ -77,8 +76,8 @@ int main()
 		ret = -5;
 	}
 	ret:
+	clean();
 	if(ret){
-		clean();
 		if(ret == -2){
 			std::cout << "Временная директория уже существует, пожалуйста попробуйте ещё раз!\n";
 		}else if(ret == -3){

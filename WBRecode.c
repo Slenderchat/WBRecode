@@ -1,154 +1,118 @@
 #include "WBRecode.h"
 
-#define chkCi(i) if(i){return(i);}
-#define chkCv(o) if(!o){return(-1);}
-#define chkTi(i) if(i){return(i);}
-#define chkTv(o) if(!o){return(-1);}
-
-int findVideoStream(AVFormatContext *ctx){
-    int ret =  -1;
-    for (unsigned int i = 0; i < ctx->nb_streams; i++){
-        if(ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO){
-            ret = i;
-            break;
-        }
-    }
-    return(ret);
-}
-
 int concat(const char* concatFilePath,const char* oFilename){
-    int ret;
-    AVFormatContext *iFx = avformat_alloc_context();
-    chkCv(iFx);
-    AVDictionary *iFd = NULL;
-    ret = av_dict_set_int(&iFd, "safe", 0, 0);
-    chkCi(ret);
-    ret = avformat_open_input(&iFx, concatFilePath, av_find_input_format("concat"), &iFd);
-    chkCi(ret);
-    AVStream *iVs = iFx->streams[0];
-    chkCv(iVs);
-    AVFormatContext *oFx = NULL;
-    ret = avformat_alloc_output_context2(&oFx, NULL, NULL, oFilename);
-    chkCi(ret);
-    AVStream *oVs = avformat_new_stream(oFx, NULL);
-    chkCv(oVs);
-    oVs->codecpar = iVs->codecpar;
-    oVs->time_base = iVs->time_base;
-    ret = avio_open(&oFx->pb, oFilename, AVIO_FLAG_WRITE);
-    chkCi(ret);
-    ret = avformat_write_header(oFx, NULL);
-    chkCi(ret);
+    AVFormatContext *iFx = avformat_alloc_context(), *oFx = NULL;
+    AVStream *iVs = NULL, *oVs = NULL;
     AVPacket *P = av_packet_alloc();
-    chkCv(P);
-    AVFrame *F = av_frame_alloc();
-    chkCv(F);
-    while(1){
-        ret = av_read_frame(iFx, P);
-        if(ret == AVERROR_EOF){
-            break;
-        }else{
-            chkCi(ret);
-        }
-        ret = av_interleaved_write_frame(oFx, P);
-        chkCi(ret);
+    AVDictionary *iFd = NULL;
+    av_dict_set_int(&iFd, "safe", 0, 0);
+    avformat_open_input(&iFx, concatFilePath, av_find_input_format("concat"), &iFd);
+    avformat_find_stream_info(iFx, NULL);
+    av_dump_format(iFx, 0, concatFilePath, 0);
+    av_dict_free(&iFd);
+    iVs = iFx->streams[0];
+    avformat_alloc_output_context2(&oFx, NULL, NULL, oFilename);
+    av_opt_set(oFx->priv_data, "movflags", "+faststart", 0);
+    oVs = avformat_new_stream(oFx, NULL);
+    avcodec_parameters_copy(oVs->codecpar, iVs->codecpar);
+    oVs->time_base = iVs->time_base;
+    av_dump_format(oFx, 0, oFilename, 1);
+    avio_open(&oFx->pb, oFilename, AVIO_FLAG_WRITE);
+    avformat_write_header(oFx, NULL);
+    const int step = oVs->time_base.den / 9;
+    int Pcount = 0;
+    while(av_read_frame(iFx, P) >= 0){
+        P->pts = Pcount * step;
+        P->dts = Pcount * step;
+        P->duration = step;
+        Pcount++;
+        av_interleaved_write_frame(oFx, P);
+        av_packet_unref(P);
     }
-    ret = av_write_trailer(oFx);
-    chkCi(ret);
+    av_write_trailer(oFx);
+    avformat_close_input(&iFx);
+    avio_closep(&oFx->pb);
+    av_packet_free(&P);
+    avformat_free_context(iFx);
+    avformat_free_context(oFx);
     return(0);
 }
 
 int transcode(const char* iFilename, const char* oFilename){
-    int ret = 0;
-    AVFormatContext *iFx = avformat_alloc_context();
-    chkTv(iFx);
-    ret = avformat_open_input(&iFx, iFilename, NULL, NULL);
-    chkTi(ret);
-    ret = avformat_find_stream_info(iFx, NULL);
-    chkTi(ret);
-    int vSn = findVideoStream(iFx);
-    chkTi(vSn);
-    AVStream *iVs = iFx->streams[vSn];
-    chkTv(iVs);
-    AVCodec *iC = avcodec_find_decoder(iVs->codecpar->codec_id);
-    chkTv(iC);
-    AVCodecContext *iCx = avcodec_alloc_context3(iC);
-    chkTv(iCx);
-    ret = avcodec_parameters_to_context(iCx, iVs->codecpar);
-    chkTi(ret);
-    ret = avcodec_open2(iCx, iC, NULL);
-    chkTi(ret);
-    AVFormatContext *oFx = NULL;
-    ret = avformat_alloc_output_context2(&oFx, NULL, NULL, oFilename);
-    chkTi(ret);
-    AVStream *oVs = avformat_new_stream(oFx, NULL);
-    chkTv(oVs);
-    AVCodec *oC = avcodec_find_encoder_by_name("libx264");
-    chkTv(oC);
-    AVCodecContext *oCx = avcodec_alloc_context3(oC);
-    chkTv(oCx);
-    oCx->width = 1280;
-    oCx->height = 720;
-    oCx->pix_fmt = AV_PIX_FMT_YUV420P;
-    oCx->time_base = (AVRational){1,9};
-    AVDictionary *oCd = NULL;
-    ret = av_dict_set(&oCd, "profile", "baseline", 0);
-    chkTi(ret);
-    ret = avcodec_open2(oCx, oC, &oCd);
-    chkTi(ret);
-    ret = avcodec_parameters_from_context(oVs->codecpar, oCx);
-    chkTi(ret);
-    oVs->time_base = oCx->time_base;
-    ret = avio_open(&oFx->pb, oFilename, AVIO_FLAG_WRITE);
-    chkTi(ret);
-    ret = avformat_write_header(oFx, NULL);
-    chkTi(ret);
-    AVPacket *P = av_packet_alloc();
-    chkTv(P);
+    AVFormatContext *iFx = avformat_alloc_context(), *oFx = NULL;
+    AVStream *iVs = NULL, *oVs = NULL;
+    AVCodec *iC = NULL, *oC = avcodec_find_encoder_by_name("libx264");
+    AVCodecContext *iCx = NULL, *oCx = NULL;
+    AVPacket *iP = av_packet_alloc(), *oP = av_packet_alloc();
     AVFrame *F = av_frame_alloc();
-    chkTv(F);
-    while(1){
-        ret = av_read_frame(iFx, P);
-        if(ret == AVERROR_EOF){
-            break;
-        }else{
-            chkTi(ret);
+    avformat_open_input(&iFx, iFilename, NULL, NULL);
+    avformat_find_stream_info(iFx, NULL);
+    av_dump_format(iFx, 0, iFilename, 0);
+    iVs = iFx->streams[0];
+    iC = avcodec_find_decoder(iVs->codecpar->codec_id);
+    iCx = avcodec_alloc_context3(iC);
+    avcodec_parameters_to_context(iCx, iVs->codecpar);
+    avcodec_open2(iCx, iC, NULL);
+    avformat_alloc_output_context2(&oFx, NULL, NULL, oFilename);
+    oVs = avformat_new_stream(oFx, NULL); 
+    oCx = avcodec_alloc_context3(oC);
+    oCx->width = iCx->width;
+    oCx->height = iCx->height;
+    oCx->pix_fmt = iCx->pix_fmt;
+    oCx->time_base = (AVRational){1,9};
+    av_opt_set(oCx->priv_data, "x264-params", "bframes=2:keyint=4:min-keyint=4:force-cfr=1", 0);
+    avcodec_open2(oCx, oC, NULL);
+    avcodec_parameters_from_context(oVs->codecpar, oCx);
+    oVs->time_base = oCx->time_base;
+    avio_open(&oFx->pb, oFilename, AVIO_FLAG_WRITE);
+    avformat_write_header(oFx, NULL);
+    av_dump_format(oFx, 0, oFilename, 1);
+    const int step = oVs->time_base.den / oCx->time_base.den;
+    int Fcount = 0, Pcount = 0;
+    while(av_read_frame(iFx, iP) >= 0){
+        int ret = avcodec_send_packet(iCx, iP);
+        while(ret >= 0){
+            ret = avcodec_receive_frame(iCx, F);
+            if(ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+                break;
+            }else if(ret < 0){
+                return(ret);
+            }
+            F->pts = Fcount * step;
+            F->pict_type = AV_PICTURE_TYPE_NONE;
+	        Fcount++;
+            ret = avcodec_send_frame(oCx, F);
+            while(ret >= 0){
+                ret = avcodec_receive_packet(oCx, oP);
+                if(ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+                    break;
+                }else if(ret < 0){
+                    return(ret);
+                }
+                oP->pts = Pcount * step;
+                oP->dts = Pcount * step;
+                oP->duration = step;
+                Pcount++;
+                ret = av_interleaved_write_frame(oFx, oP);
+                av_packet_unref(oP);
+            }
+            av_frame_unref(F);
         }
-        if(P->stream_index != vSn){
-            av_packet_unref(P);
-            continue;
-        }
-        P->pts = av_rescale_q_rnd(P->pts, iVs->time_base, oVs->time_base, AV_ROUND_DOWN);
-        P->dts = av_rescale_q_rnd(P->dts, iVs->time_base, oVs->time_base, AV_ROUND_DOWN);
-        P->duration = av_rescale_q_rnd(P->duration, iVs->time_base, oVs->time_base, AV_ROUND_DOWN);
-        ret = avcodec_send_packet(iCx, P);
-        if(ret == AVERROR(EAGAIN)){
-            continue;
-        }else{
-            chkTi(ret);
-        }
-        ret = avcodec_receive_frame(iCx, F);
-        if(ret == AVERROR(EAGAIN)){
-            continue;
-        }else{
-            chkTi(ret);
-        }
-        F->pts = av_rescale_q_rnd(iCx->frame_number - 1, oCx->time_base, oVs->time_base, AV_ROUND_DOWN);
-        ret = avcodec_send_frame(oCx, F);
-        if(ret == AVERROR(EAGAIN)){
-            continue;
-        }else{
-            chkTi(ret);
-        }
-        ret = avcodec_receive_packet(oCx, P);
-        if(ret == AVERROR(EAGAIN)){
-            continue;
-        }else{
-            chkTi(ret);
-        }
-        ret = av_interleaved_write_frame(oFx, P);
-        chkTi(ret);
+        av_packet_unref(iP);
+        av_frame_unref(F);
+        av_packet_unref(oP);
     }
-    ret = av_write_trailer(oFx);
-    chkTi(ret);
+    av_write_trailer(oFx);
+    avformat_close_input(&iFx);
+    avio_closep(&oFx->pb);
+    avcodec_close(iCx);
+    avcodec_close(oCx);
+    av_packet_free(&iP);
+    av_packet_free(&oP);
+    av_frame_free(&F);
+    avformat_free_context(iFx);
+    avformat_free_context(oFx);
+    avcodec_free_context(&iCx);
+    avcodec_free_context(&oCx);
     return(0);
 }
