@@ -3,3 +3,4 @@
 #include <boost/regex.hpp>
 #include <fstream>
 #include <locale>
+#include <vector>

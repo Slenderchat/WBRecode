@@ -5,5 +5,5 @@
 #include <libavutil/opt.h>
 #include <stdbool.h>
 
-int transcode(const char* iFilename, const char* oFilename);
-int concat(const char* concatFilePath,const char* oFilename);
+bool transcode(const char* iFilename, const char* oFilename);
+bool concat(const char* concatFilePath,const char* oFilename);

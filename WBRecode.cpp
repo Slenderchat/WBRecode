@@ -3,6 +3,7 @@
 extern "C" {
 	#include "WBRecode.h"
 }
+
 static const boost::filesystem::path TD_n = boost::filesystem::temp_directory_path() / boost::filesystem::unique_path();
 static const boost::filesystem::path TF_n = boost::filesystem::temp_directory_path() / boost::filesystem::unique_path();
 
@@ -12,81 +13,103 @@ void clean(){
 		boost::filesystem::remove(TF_n);
 	}
 	catch (std::exception& e) {
-		std::cout << e.what() << "\n";
+		std::cout << e.what() << std::endl;
 	}
 }
 
-int findAndTranscode(){
-	int ret = -1;
-	std::ofstream TF(TF_n.c_str(), std::ofstream::out);
-	if (!TF.is_open()) {
-		ret = -2;
-		goto ret;
-	}
+bool find(std::vector<boost::filesystem::path> *v){
+	bool ret = false;
 	for (auto& p : boost::filesystem::directory_iterator(boost::filesystem::current_path())) {
 		if (boost::regex_match(p.path().filename().string(), (boost::regex)"[0-9]{2}-[0-9]{2}-[0-9]{2}\\.mp4")) {
-            boost::filesystem::path tmp = TD_n / p.path().filename();
-			TF << "file '" << tmp.c_str() << "'\n";
-			ret = transcode(p.path().c_str(), tmp.c_str());
-            if(ret){
-				ret = -3;
-				goto ret;
+            v->push_back(p.path());
+			if(!ret){
+				ret = true;
 			}
 		}
 	}
-	TF.close();
-	ret:
-	if(ret == -1){
-		std::cout << "Отсутствуют входные файлы\n";
-	}else if(ret == -2){
-		std::cout << "Временный файл не удалось открыть для записи\n";
-	}else if(ret <= -3){
-		std::cout << "Ошибка при транскодировании:\n";
+	return(ret);
+}
+
+bool transcode(std::vector<boost::filesystem::path> *v){
+	bool ret = true;
+	std::ofstream TF(TF_n.c_str(), std::ofstream::out);
+	if (!TF.is_open()) {
+		ret = false;
+		std::cout << "Ошибка при составлении списка файлов" << std::endl;
+		return(ret);
 	}
+	for(int i = 0; i < v->size(); i++){
+		boost::filesystem::path tmp = TD_n / v->at(i).filename();
+		if(i > 0){
+			std::cout << "\r";
+		}
+		std::cout << "Файл " << v->at(i).filename().c_str() << " [" << i + 1 << " из " << v->size() << "]" << std::flush;
+		if(transcode(v->at(i).c_str(), tmp.c_str())){
+			TF << "file '" << tmp.c_str() << "'" << std::endl;
+		}
+		else{
+			ret = false;
+			break;
+		}
+	}
+	std::cout << std::endl;
 	return(ret);
 }
 
 int main()
 {
-	int ret = 0;
+	std::vector<boost::filesystem::path> files;
 	setlocale(LC_ALL, "ru_RU.UTF-8");
+	std::cout << "Создаю временные файлы" << std::endl;
 	if(!boost::filesystem::exists(TD_n)){
 		try{
 			boost::filesystem::create_directory(TD_n);
 		}catch (std::exception& e) {
-			std::cout << e.what() << "\n";
-			ret = -1;
-			goto ret;
+			std::cout << e.what() << std::endl;
+			clean();
+			return(-1);
 		}
 	}else{
-		ret = -2;
-		goto ret;
+		try{
+			boost::filesystem::remove_all(TD_n);
+			boost::filesystem::create_directory(TD_n);
+		}catch (std::exception& e) {
+			std::cout << e.what() << std::endl;
+			clean();
+			return(-2);
+		}
 	}
 	if(boost::filesystem::exists(TF_n)){
-		ret = -3;
-		goto ret;
+		try{
+			boost::filesystem::remove(TF_n);
+		}catch (std::exception& e) {
+			std::cout << e.what() << std::endl;
+			clean();
+			return(-3);
+		}
 	}
-	if(!findAndTranscode()){
-		boost::filesystem::path tmp = boost::filesystem::current_path() / "out.mp4";
-		if(concat(TF_n.c_str(), tmp.c_str())){
-			ret = -4;
-			goto ret;
+	std::cout << "Выполняю поиск видео-фрагментов" << std::endl;
+	if(find(&files)){
+		std::cout << "Начинаю процесс приведения видео-фрагментов к единому формату" << std::endl;
+		if(transcode(&files)){
+			boost::filesystem::path tmp = boost::filesystem::current_path() / "out.mp4";
+			if(concat(TF_n.c_str(), tmp.c_str())){
+				std::cout << "Всё прошло успешно!" << std::endl;
+			}else{
+				std::cout << "Ошибка при объединении" << std::endl;
+				clean();
+				return(-4);
+			}
+		}else{
+			std::cout << "Ошибка при транскодировании" << std::endl;
+			clean();
+			return(-5);
 		}
 	}else{
-		ret = -5;
+		std::cout << "Видео-фрагменты в текущей папке не найдены" << std::endl;
+		clean();
+		return(-6);
 	}
-	ret:
 	clean();
-	if(ret){
-		if(ret == -2){
-			std::cout << "Временная директория уже существует, пожалуйста попробуйте ещё раз!\n";
-		}else if(ret == -3){
-			std::cout << "Временный файл уже существует, пожалуйста попробуйте ещё раз!\n";
-		}else if(ret == -4){
-			std::cout << "Ошибка при объединении\n";
-		}
-		std::cout << "Нажмите 'Enter' чтобы выйти";
-		std::cin.get();
-	}
-	return(ret);
+	return(0);
 }
